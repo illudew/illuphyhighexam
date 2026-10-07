@@ -1,0 +1,796 @@
+# -*- coding: utf-8 -*-
+"""
+高考物理特辑 · 静态站点生成器
+------------------------------------------------
+输入：content_knowledge.py / content_questions.py / content_skills.py （纯数据）
+输出：index.html / knowledge.html / questions.html / skills.html （自包含页面）
+
+运行：python3 gen_site.py
+"""
+import os
+
+from content_knowledge import KNOWLEDGE
+from content_questions import QUESTIONS
+from content_skills import SKILLS
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SITE_NAME = "高考物理总复习"
+SITE_SUB = "illuphyhighexam · 高考特辑"
+
+# --------------------------------------------------------------------------
+# 基础工具
+# --------------------------------------------------------------------------
+
+
+def attr(s):
+    """转义为 HTML 属性安全字符串。"""
+    if s is None:
+        return ""
+    s = str(s)
+    return (s.replace("&", "&amp;").replace('"', "&quot;")
+             .replace("<", "&lt;").replace(">", "&gt;")
+             .replace("\n", " "))
+
+
+def srch(*parts):
+    """构造用于搜索匹配的低噪声文本。"""
+    txt = " ".join(str(p) for p in parts if p)
+    for ch in "$\\{}()[]":
+        txt = txt.replace(ch, " ")
+    return txt.lower()
+
+
+def formula_block(f):
+    """f = (名称, latex, 说明) -> HTML"""
+    name, latex, note = (list(f) + ["", "", ""])[:3]
+    note_html = '<span class="fml-note">%s</span>' % note if note else ""
+    name_html = '<span class="fml-name">%s</span>' % name if name else ""
+    return (
+        '<div class="fml">%s<span class="fml-body">$$%s$$</span>%s</div>'
+        % (name_html, latex, note_html)
+    )
+
+
+# --------------------------------------------------------------------------
+# 全局样式
+# --------------------------------------------------------------------------
+
+CSS = r"""
+*,*::before,*::after{box-sizing:border-box}
+:root{
+  --bg:#eef2f9;--bg2:#ffffff;--card:#ffffff;--ink:#0f172a;--muted:#5b6b86;
+  --line:#dde5f0;--brand:#4f46e5;--brand2:#06b6d4;--accent:#f59e0b;
+  --ok:#10b981;--warn:#f43f5e;--shadow:0 10px 30px rgba(23,42,90,.08);
+  --shadow2:0 18px 46px rgba(23,42,90,.14);--radius:16px;
+}
+html[data-theme="dark"]{
+  --bg:#070c1a;--bg2:#0d1426;--card:#111a30;--ink:#e7eefb;--muted:#93a4c4;
+  --line:#233150;--brand:#818cf8;--brand2:#22d3ee;--accent:#fbbf24;
+  --ok:#34d399;--warn:#fb7185;--shadow:0 10px 30px rgba(0,0,0,.5);
+  --shadow2:0 18px 46px rgba(0,0,0,.6);
+}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{
+  margin:0;color:var(--ink);font-size:15.5px;line-height:1.75;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  background:
+    radial-gradient(1200px 600px at 12% -8%,rgba(99,102,241,.16),transparent 60%),
+    radial-gradient(1000px 560px at 92% 0%,rgba(6,182,212,.14),transparent 55%),
+    var(--bg);
+  background-attachment:fixed;min-height:100vh;
+}
+a{color:inherit;text-decoration:none}
+img{max-width:100%}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+
+/* ------------ 顶部导航 ------------ */
+.nav{
+  position:sticky;top:0;z-index:60;backdrop-filter:blur(14px);
+  background:color-mix(in srgb,var(--bg2) 82%,transparent);
+  border-bottom:1px solid var(--line);
+}
+.nav-in{display:flex;align-items:center;gap:18px;height:64px;max-width:1180px;margin:0 auto;padding:0 20px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.3px;font-size:16px;white-space:nowrap}
+.logo{
+  width:32px;height:32px;border-radius:9px;display:grid;place-items:center;font-size:17px;
+  background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;
+  box-shadow:0 6px 16px rgba(79,70,229,.4)
+}
+.brand small{display:block;font-size:10.5px;color:var(--muted);font-weight:600;letter-spacing:.6px}
+.nav-links{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+.nav-links a{
+  padding:8px 14px;border-radius:10px;font-weight:650;font-size:14px;color:var(--muted);
+  transition:.18s;border:1px solid transparent
+}
+.nav-links a:hover{color:var(--ink);background:color-mix(in srgb,var(--brand) 10%,transparent)}
+.nav-links a.on{color:var(--brand);background:color-mix(in srgb,var(--brand) 13%,transparent);border-color:color-mix(in srgb,var(--brand) 30%,transparent)}
+.theme-btn{
+  width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--card);
+  cursor:pointer;font-size:16px;color:var(--ink);transition:.18s
+}
+.theme-btn:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+
+/* ------------ 通用 ------------ */
+.hero{padding:64px 0 30px;text-align:center}
+.badge{
+  display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;
+  background:color-mix(in srgb,var(--brand) 12%,transparent);color:var(--brand);
+  font-weight:700;font-size:12.5px;letter-spacing:.5px;border:1px solid color-mix(in srgb,var(--brand) 26%,transparent)
+}
+.hero h1{font-size:clamp(30px,5vw,52px);margin:16px 0 10px;letter-spacing:-1px;font-weight:900}
+.hero h1 .grad{background:linear-gradient(120deg,var(--brand),var(--brand2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--muted);max-width:680px;margin:0 auto;font-size:16px}
+.page-head{padding:44px 0 8px}
+.page-head h1{font-size:clamp(24px,3.6vw,36px);margin:6px 0 8px;font-weight:900;letter-spacing:-.5px}
+.page-head p{color:var(--muted);margin:0;max-width:760px}
+.crumb{font-size:12.5px;color:var(--muted);font-weight:650;letter-spacing:.5px}
+.crumb a:hover{color:var(--brand)}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin:34px 0}
+.stat{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:20px 16px;text-align:center;box-shadow:var(--shadow)
+}
+.stat b{display:block;font-size:30px;font-weight:900;background:linear-gradient(120deg,var(--brand),var(--brand2));-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1.2}
+.stat span{font-size:12.5px;color:var(--muted);font-weight:650}
+
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:20px;margin:10px 0 40px}
+.entry{
+  position:relative;background:var(--card);border:1px solid var(--line);border-radius:20px;
+  padding:28px 24px 24px;box-shadow:var(--shadow);transition:.22s;overflow:hidden;display:block
+}
+.entry::after{
+  content:"";position:absolute;inset:0 0 auto 0;height:4px;
+  background:linear-gradient(90deg,var(--brand),var(--brand2));opacity:.9
+}
+.entry:hover{transform:translateY(-4px);box-shadow:var(--shadow2);border-color:color-mix(in srgb,var(--brand) 40%,var(--line))}
+.entry .ico{font-size:30px;display:block;margin-bottom:10px}
+.entry h3{margin:0 0 6px;font-size:19px;font-weight:800}
+.entry p{margin:0 0 16px;color:var(--muted);font-size:14px}
+.entry .go{display:inline-flex;align-items:center;gap:6px;font-weight:750;color:var(--brand);font-size:14px}
+.entry .tagline{position:absolute;top:18px;right:20px;font-size:12px;color:var(--muted);font-weight:700}
+
+.quick{margin:8px 0 50px}
+.quick h2{font-size:18px;font-weight:800;margin:0 0 14px}
+.chips{display:flex;flex-wrap:wrap;gap:9px}
+.chip{
+  display:inline-block;padding:7px 14px;border-radius:999px;font-size:13px;font-weight:650;
+  background:var(--card);border:1px solid var(--line);color:var(--muted);transition:.16s;cursor:pointer
+}
+.chip:hover{color:var(--brand);border-color:color-mix(in srgb,var(--brand) 45%,var(--line));transform:translateY(-1px)}
+.chip.on{background:linear-gradient(135deg,var(--brand),var(--brand2));border-color:transparent;color:#fff;box-shadow:0 8px 18px rgba(79,70,229,.32)}
+
+.toolbar{
+  position:sticky;top:64px;z-index:40;background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:12px 0;margin-bottom:22px
+}
+.toolbar-in{max-width:1180px;margin:0 auto;padding:0 20px;display:flex;flex-direction:column;gap:10px}
+.toolbar .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.search{
+  flex:1;min-width:220px;display:flex;align-items:center;gap:9px;background:var(--card);
+  border:1px solid var(--line);border-radius:12px;padding:9px 14px;box-shadow:var(--shadow)
+}
+.search input{border:none;outline:none;background:transparent;font-size:14px;color:var(--ink);width:100%;font-family:inherit}
+.flabel{font-size:12.5px;font-weight:750;color:var(--muted);min-width:36px}
+
+.layout{display:grid;grid-template-columns:250px 1fr;gap:26px;align-items:start;padding-bottom:60px}
+.side{
+  position:sticky;top:120px;max-height:calc(100vh - 140px);overflow:auto;background:var(--card);
+  border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)
+}
+.side h4{margin:0 0 10px;font-size:12.5px;letter-spacing:1px;color:var(--muted);text-transform:uppercase}
+.side a{display:block;padding:6px 10px;border-radius:8px;font-size:13.5px;color:var(--muted);font-weight:600;border-left:2px solid transparent}
+.side a:hover{background:color-mix(in srgb,var(--brand) 9%,transparent);color:var(--ink)}
+.side a.lv1{font-weight:800;color:var(--ink);margin-top:8px}
+.side a.lv2{padding-left:20px;font-size:12.8px}
+
+.sec{margin-bottom:44px}
+.sec-head{display:flex;align-items:center;gap:12px;margin:0 0 18px;flex-wrap:wrap}
+.sec-head .dot{width:12px;height:12px;border-radius:4px;background:var(--brand)}
+.sec-head h2{margin:0;font-size:23px;font-weight:900;letter-spacing:-.4px}
+.sec-head .cnt{font-size:12.5px;color:var(--muted);font-weight:700;background:var(--card);border:1px solid var(--line);padding:3px 10px;border-radius:999px}
+.sec-desc{color:var(--muted);font-size:14px;margin:-8px 0 18px}
+
+.chapter{margin:0 0 26px}
+.chapter>h3{
+  font-size:17px;font-weight:800;margin:0 0 6px;display:flex;align-items:baseline;gap:10px;
+  padding-left:12px;border-left:4px solid var(--brand)
+}
+.chapter>h3 .no{font-size:13px;color:var(--brand);font-weight:800}
+.chapter>.sum{color:var(--muted);font-size:13.5px;margin:0 0 14px;padding-left:16px}
+
+.kp{
+  background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;
+  margin-bottom:14px;box-shadow:var(--shadow);transition:.18s
+}
+.kp:hover{border-color:color-mix(in srgb,var(--brand) 38%,var(--line))}
+.kp h4{margin:0 0 8px;font-size:15.5px;font-weight:800;display:flex;align-items:center;gap:8px}
+.kp .idx{font-size:11px;font-weight:800;color:#fff;background:linear-gradient(135deg,var(--brand),var(--brand2));border-radius:6px;padding:1px 7px}
+.kp .defn{color:var(--ink);margin:0 0 10px;font-size:14.6px}
+.fml{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  background:color-mix(in srgb,var(--brand) 7%,transparent);
+  border:1px dashed color-mix(in srgb,var(--brand) 32%,var(--line));
+  border-radius:10px;padding:6px 14px;margin:7px 0;overflow-x:auto
+}
+.fml-name{font-size:12.5px;font-weight:800;color:var(--brand);white-space:nowrap}
+.fml-body{font-size:15px;color:var(--ink)}
+.fml-note{font-size:12.5px;color:var(--muted);margin-left:auto}
+.keys{margin:10px 0 0;padding-left:0;list-style:none}
+.keys li{position:relative;padding-left:20px;margin:5px 0;font-size:14px;color:var(--ink)}
+.keys li::before{content:"◆";position:absolute;left:0;color:var(--brand2);font-size:11px;top:2px}
+.pit{
+  margin-top:11px;background:color-mix(in srgb,var(--warn) 9%,transparent);
+  border-left:3px solid var(--warn);border-radius:8px;padding:9px 14px;font-size:13.5px;color:var(--ink)
+}
+.pit b{color:var(--warn)}
+
+/* ------------ 题目卡 ------------ */
+.qcard{
+  background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 22px;
+  margin-bottom:16px;box-shadow:var(--shadow);transition:.18s
+}
+.qcard:hover{box-shadow:var(--shadow2)}
+.qhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.qno{font-size:12px;font-weight:800;color:#fff;background:linear-gradient(135deg,var(--brand),var(--brand2));padding:3px 10px;border-radius:7px}
+.qmeta{font-size:12px;color:var(--muted);font-weight:650}
+.stars{color:var(--accent);font-size:12px;letter-spacing:1px}
+.tagx{font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:color-mix(in srgb,var(--brand) 11%,transparent);color:var(--brand);border:1px solid color-mix(in srgb,var(--brand) 24%,transparent)}
+.qbody{font-size:15px;margin:4px 0 10px}
+.opts{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:6px}
+.opts li{font-size:14.2px;padding:7px 12px;border-radius:9px;background:color-mix(in srgb,var(--brand) 5%,transparent);border:1px solid var(--line)}
+.btn{
+  margin-top:12px;display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:10px;cursor:pointer;
+  font-size:13.5px;font-weight:750;border:1px solid color-mix(in srgb,var(--brand) 34%,var(--line));
+  background:color-mix(in srgb,var(--brand) 10%,transparent);color:var(--brand);transition:.16s;font-family:inherit
+}
+.btn:hover{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;border-color:transparent}
+.sol{display:none;margin-top:14px;border-top:1px dashed var(--line);padding-top:14px;animation:fade .25s ease}
+.sol.open{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.ans{display:inline-flex;align-items:center;gap:8px;background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok);border:1px solid color-mix(in srgb,var(--ok) 40%,transparent);border-radius:9px;padding:7px 14px;font-weight:800;font-size:14px;margin-bottom:12px}
+.blk{margin:10px 0}
+.blk .bt{font-size:13px;font-weight:800;color:var(--brand);display:inline-flex;align-items:center;gap:6px;margin-bottom:4px}
+.blk .bc{font-size:14.2px}
+.trickbox{background:color-mix(in srgb,var(--accent) 12%,transparent);border-left:3px solid var(--accent);border-radius:8px;padding:9px 14px;font-size:13.6px;margin-top:10px}
+.trickbox b{color:#b45309}
+html[data-theme="dark"] .trickbox b{color:var(--accent)}
+
+/* ------------ 技巧卡 ------------ */
+.scard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:16px;box-shadow:var(--shadow);transition:.18s}
+.scard:hover{box-shadow:var(--shadow2);transform:translateY(-2px)}
+.scard h3{margin:0 0 4px;font-size:17.5px;font-weight:850;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.lvl{font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px;border:1px solid}
+.lvl-基础{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.lvl-进阶{color:var(--brand);border-color:color-mix(in srgb,var(--brand) 45%,transparent);background:color-mix(in srgb,var(--brand) 12%,transparent)}
+.lvl-高阶{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent);background:color-mix(in srgb,var(--warn) 12%,transparent)}
+.scard .scene{color:var(--muted);font-size:13.4px;margin:0 0 12px}
+.ol{margin:6px 0 0;padding-left:0;list-style:none;counter-reset:st}
+.ol li{position:relative;padding-left:30px;margin:7px 0;font-size:14.2px;counter-increment:st}
+.ol li::before{content:counter(st);position:absolute;left:0;top:2px;width:19px;height:19px;border-radius:6px;display:grid;place-items:center;font-size:11px;font-weight:800;color:#fff;background:linear-gradient(135deg,var(--brand),var(--brand2))}
+.motto{margin-top:12px;font-size:13.5px;font-weight:750;color:var(--brand);background:color-mix(in srgb,var(--brand) 9%,transparent);border-radius:9px;padding:8px 14px}
+.empty{display:none;text-align:center;color:var(--muted);padding:50px 0;font-weight:650}
+
+.foot{border-top:1px solid var(--line);padding:26px 0;color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
+.top{
+  position:fixed;right:22px;bottom:22px;width:44px;height:44px;border-radius:12px;border:1px solid var(--line);
+  background:var(--card);color:var(--brand);font-size:18px;cursor:pointer;box-shadow:var(--shadow2);display:none;z-index:70
+}
+.top.show{display:grid;place-items:center}
+mjx-container{overflow-x:auto;overflow-y:hidden;max-width:100%}
+@media(max-width:900px){
+  .layout{grid-template-columns:1fr}
+  .side{position:static;max-height:none;display:none}
+  .nav-links a{padding:7px 10px;font-size:13px}
+  .brand small{display:none}
+}
+"""
+
+# --------------------------------------------------------------------------
+# 全局脚本
+# --------------------------------------------------------------------------
+
+JS = r"""
+(function(){
+  var HT=document.documentElement;
+  var saved=localStorage.getItem('phx-theme');
+  if(saved){HT.setAttribute('data-theme',saved);}
+  else if(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches){HT.setAttribute('data-theme','dark');}
+  window.__toggleTheme=function(){
+    var cur=HT.getAttribute('data-theme')==='dark'?'light':'dark';
+    HT.setAttribute('data-theme',cur);localStorage.setItem('phx-theme',cur);
+    var b=document.getElementById('themeBtn');if(b)b.textContent=cur==='dark'?'☀️':'🌙';
+  };
+  document.addEventListener('DOMContentLoaded',function(){
+    var b=document.getElementById('themeBtn');
+    if(b)b.textContent=HT.getAttribute('data-theme')==='dark'?'☀️':'🌙';
+    // 折叠
+    document.querySelectorAll('[data-toggle]').forEach(function(el){
+      el.addEventListener('click',function(){
+        var t=document.getElementById(el.getAttribute('data-toggle'));
+        if(!t)return;t.classList.toggle('open');
+        el.textContent=t.classList.contains('open')?'收起解析 ▲':'显示答案与解析 ▼';
+      });
+    });
+    // 回到顶部
+    var top=document.getElementById('toTop');
+    if(top){
+      window.addEventListener('scroll',function(){top.classList.toggle('show',window.scrollY>500);});
+      top.addEventListener('click',function(){window.scrollTo({top:0,behavior:'smooth'});});
+    }
+    // 过滤器
+    var S={cat:'all',module:'all',diff:'all',level:'all',kw:''};
+    function parseHash(){
+      var h=location.hash.replace(/^#/,'');if(!h)return;
+      h.split('&').forEach(function(kv){
+        var p=kv.split('=');if(p.length<2)return;
+        var k=decodeURIComponent(p[0]),v=decodeURIComponent(p.slice(1).join('='));
+        if(S.hasOwnProperty(k))S[k]=v;
+      });
+    }
+    function paint(){
+      var shown=0;
+      document.querySelectorAll('[data-item]').forEach(function(el){
+        var d=el.dataset,ok=true;
+        ['cat','module','diff','level'].forEach(function(k){
+          if(S[k]!=='all'&&d[k]&&d[k]!==S[k])ok=false;
+        });
+        if(S.kw&&(d.text||'').indexOf(S.kw)<0)ok=false;
+        el.style.display=ok?'':'none';if(ok)shown++;
+      });
+      document.querySelectorAll('[data-group]').forEach(function(g){
+        var vis=g.querySelectorAll('[data-item]');
+        var any=false;vis.forEach(function(v){if(v.style.display!=='none')any=true;});
+        g.style.display=any?'':'none';
+      });
+      document.querySelectorAll('[data-gcount]').forEach(function(c){
+        var g=c.closest('[data-group]');if(!g)return;
+        var n=0;g.querySelectorAll('[data-item]').forEach(function(v){if(v.style.display!=='none')n++;});
+        c.textContent=n;
+      });
+      var em=document.getElementById('emptyBox');
+      if(em)em.style.display=shown===0?'block':'none';
+      var cc=document.getElementById('visCount');if(cc)cc.textContent=shown;
+    }
+    document.querySelectorAll('[data-filter]').forEach(function(c){
+      c.addEventListener('click',function(){
+        var grp=c.getAttribute('data-filter'),val=c.getAttribute('data-value');
+        S[grp]=val;
+        document.querySelectorAll('[data-filter="'+grp+'"]').forEach(function(x){x.classList.remove('on');});
+        c.classList.add('on');paint();
+      });
+    });
+    var si=document.getElementById('search');
+    if(si){
+      si.addEventListener('input',function(){S.kw=si.value.trim().toLowerCase();paint();});
+    }
+    // 侧栏锚点高亮
+    var links=document.querySelectorAll('.side a[href^="#"]');
+    if(links.length){
+      var obs=new IntersectionObserver(function(es){
+        es.forEach(function(e){
+          if(e.isIntersecting){
+            links.forEach(function(l){l.classList.remove('on');});
+            var l=document.querySelector('.side a[href="#'+e.target.id+'"]');
+            if(l)l.classList.add('on');
+          }
+        });
+      },{rootMargin:'-90px 0px -70% 0px'});
+      document.querySelectorAll('.sec[id]').forEach(function(s){obs.observe(s);});
+    }
+    // 同步 hash 里的过滤到按钮状态
+    function syncChips(){
+      document.querySelectorAll('[data-filter]').forEach(function(c){
+        var grp=c.getAttribute('data-filter'),val=c.getAttribute('data-value');
+        if(S[grp]===val){document.querySelectorAll('[data-filter="'+grp+'"]').forEach(function(x){x.classList.remove('on');});c.classList.add('on');}
+      });
+    }
+    function applyHash(){parseHash();syncChips();paint();}
+    window.addEventListener('hashchange',applyHash);
+    applyHash();
+  });
+})();
+"""
+
+# --------------------------------------------------------------------------
+# 页面框架
+# --------------------------------------------------------------------------
+
+PAGE = r"""<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>@@TITLE@@</title>
+<meta name="description" content="@@DESC@@">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚛️</text></svg>">
+<script>
+MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']],tags:'none'},
+ options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']}};
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<style>@@CSS@@</style>
+</head>
+<body>
+<header class="nav">
+  <div class="nav-in">
+    <a class="brand" href="index.html">
+      <span class="logo">⚛️</span>
+      <span>高考物理总复习<small>@@SUB@@</small></span>
+    </a>
+    <nav class="nav-links">@@NAV@@</nav>
+    <button class="theme-btn" id="themeBtn" onclick="__toggleTheme()" title="切换主题">🌙</button>
+  </div>
+</header>
+@@BODY@@
+<footer class="foot">
+  <div class="wrap">
+    <p>⚛️ 高考物理总复习 · 知识点汇总 / 真题模拟题库 / 解题技巧大全</p>
+    <p>内容覆盖高中物理核心考点与常见题型，供复习与自测使用 · © illuphyhighexam</p>
+  </div>
+</footer>
+<button class="top" id="toTop" title="回到顶部">↑</button>
+<script>@@JS@@</script>
+</body>
+</html>"""
+
+
+def nav_html(active):
+    items = [
+        ("index.html", "首页", "home"),
+        ("knowledge.html", "知识点汇总", "know"),
+        ("questions.html", "真题题库", "ques"),
+        ("skills.html", "解题技巧", "skill"),
+    ]
+    out = []
+    for href, label, key in items:
+        cls = ' class="on"' if key == active else ""
+        out.append('<a href="%s"%s>%s</a>' % (href, cls, label))
+    return "".join(out)
+
+
+def page(title, desc, active, body):
+    html = PAGE
+    html = html.replace("@@TITLE@@", title)
+    html = html.replace("@@DESC@@", attr(desc))
+    html = html.replace("@@SUB@@", SITE_SUB)
+    html = html.replace("@@NAV@@", nav_html(active))
+    html = html.replace("@@CSS@@", CSS)
+    html = html.replace("@@BODY@@", body)
+    html = html.replace("@@JS@@", JS)
+    return html
+
+
+# --------------------------------------------------------------------------
+# 首页
+# --------------------------------------------------------------------------
+
+def total_points():
+    return sum(len(c["points"]) for m in KNOWLEDGE for c in m["chapters"])
+
+
+def render_home():
+    n_kp = total_points()
+    n_ch = sum(len(m["chapters"]) for m in KNOWLEDGE)
+    n_q = len(QUESTIONS)
+    n_s = len(SKILLS)
+
+    entries = [
+        ("knowledge.html", "📚", "高考知识点汇总",
+         "五大模块 · %d 章 · %d 个知识点，逐点给出定义、核心公式、关键结论与易错提醒。" % (n_ch, n_kp),
+         "%d 个知识点" % n_kp),
+        ("questions.html", "🧮", "高考真题模拟题库",
+         "选择 / 实验 / 计算三大题型 · %d 道精编题，含答案、分步解析、思路点拨与秒杀技巧。" % n_q,
+         "%d 道题" % n_q),
+        ("skills.html", "🧠", "解题技巧思路大全",
+         "方法 · 模型 · 速算 · 应试四大类 · %d 个高级思路，拆解出题人套路，配步骤与例题。" % n_s,
+         "%d 个技巧" % n_s),
+    ]
+    cards = []
+    for href, ico, t, d, tag in entries:
+        cards.append(
+            '<a class="entry" href="%s"><span class="tagline">%s</span><span class="ico">%s</span>'
+            '<h3>%s</h3><p>%s</p><span class="go">进入 →</span></a>'
+            % (href, tag, ico, t, d)
+        )
+
+    # 模块一键直达
+    quick = []
+    for i, m in enumerate(KNOWLEDGE):
+        quick.append('<a class="chip" href="knowledge.html#m%d">%s · %s</a>' % (i, m.get("icon", ""), m["module"]))
+    for cat in ["选择题", "实验题", "计算题"]:
+        quick.append('<a class="chip" href="questions.html#cat=%s">题库 · %s</a>' % (cat, cat))
+    for cat in ["方法类", "模型类", "速算类", "应试类"]:
+        quick.append('<a class="chip" href="skills.html#cat=%s">技巧 · %s</a>' % (cat, cat))
+
+    body = """
+<section class="wrap hero">
+  <span class="badge">⚛️ 覆盖高考物理全部核心题型 · 一键直达</span>
+  <h1>把高考物理，<span class="grad">一次学透</span></h1>
+  <p>知识点汇总、真题模拟题库、解题技巧大全三位一体。分门别类、一键直达，每个知识点可查公式与结论，每道题可看解析与思路，每个技巧都拆解出题人的套路。</p>
+  <div class="stats">
+    <div class="stat"><b>%d</b><span>知识点</span></div>
+    <div class="stat"><b>%d</b><span>章节目录</span></div>
+    <div class="stat"><b>%d</b><span>精编题目</span></div>
+    <div class="stat"><b>%d</b><span>解题技巧</span></div>
+    <div class="stat"><b>5</b><span>物理模块</span></div>
+  </div>
+</section>
+<section class="wrap">
+  <div class="grid3">%s</div>
+</section>
+<section class="wrap quick">
+  <h2>🚀 一键直达</h2>
+  <div class="chips">%s</div>
+</section>
+""" % (n_kp, n_ch, n_q, n_s, "".join(cards), "".join(quick))
+    return page("高考物理总复习 · 知识点 · 题库 · 解题技巧", "高考物理知识点汇总、真题模拟题库与解题技巧大全，覆盖高考全部核心题型。", "home", body)
+
+
+# --------------------------------------------------------------------------
+# 知识点页
+# --------------------------------------------------------------------------
+
+def render_knowledge():
+    side = []
+    secs = []
+    n_kp = 0
+    for i, m in enumerate(KNOWLEDGE):
+        color = m.get("color", "#4f46e5")
+        side.append('<a class="lv1" href="#m%d">%s %s</a>' % (i, m.get("icon", ""), m["module"]))
+        ch_html = []
+        for j, c in enumerate(m["chapters"]):
+            cid = "m%d-c%d" % (i, j)
+            side.append('<a class="lv2" href="#%s">%s %s</a>' % (cid, c.get("no", ""), c["title"]))
+            pts = []
+            for k, p in enumerate(c["points"]):
+                n_kp += 1
+                fmls = "".join(formula_block(f) for f in p.get("formulas", []))
+                keys = ""
+                if p.get("keys"):
+                    keys = '<ul class="keys">%s</ul>' % "".join("<li>%s</li>" % x for x in p["keys"])
+                pit = ""
+                if p.get("pitfall"):
+                    pit = '<div class="pit"><b>易错提醒｜</b>%s</div>' % p["pitfall"]
+                txt = srch(p.get("t", ""), p.get("defn", ""), " ".join(p.get("keys", [])),
+                           p.get("pitfall", ""), c["title"], m["module"])
+                pts.append(
+                    '<article class="kp" data-item data-module="%s" data-text="%s" id="%s-k%d">'
+                    '<h4><span class="idx">%d</span>%s</h4>'
+                    '<p class="defn">%s</p>%s%s%s</article>'
+                    % (attr(m["module"]), attr(txt), cid, k, k + 1, p.get("t", ""),
+                       p.get("defn", ""), fmls, keys, pit)
+                )
+            ch_html.append(
+                '<div class="chapter" data-group>'
+                '<h3 id="%s"><span class="no">%s</span>%s</h3>'
+                '<p class="sum">%s</p>%s</div>'
+                % (cid, c.get("no", ""), c["title"], c.get("summary", ""), "".join(pts))
+            )
+        secs.append(
+            '<section class="sec" id="m%d" data-group>'
+            '<div class="sec-head"><span class="dot" style="background:%s"></span>'
+            '<h2>%s %s</h2><span class="cnt">%d 节</span></div>'
+            '<p class="sec-desc">%s</p>%s</section>'
+            % (i, color, m.get("icon", ""), m["module"], len(m["chapters"]),
+               m.get("desc", ""), "".join(ch_html))
+        )
+
+    toolbar = """
+<div class="toolbar"><div class="toolbar-in">
+  <div class="row">
+    <div class="search">🔍<input id="search" type="search" placeholder="搜索知识点、公式关键词，如：动量、楞次定律、临界……"></div>
+  </div>
+  <div class="row"><span class="flabel">模块</span><div class="chips">
+    <span class="chip on" data-filter="module" data-value="all">全部</span>
+    %s
+  </div></div>
+</div></div>
+""" % "".join(
+        '<span class="chip" data-filter="module" data-value="%s">%s %s</span>' % (attr(m["module"]), m.get("icon", ""), m["module"])
+        for m in KNOWLEDGE
+    )
+
+    body = """
+<section class="wrap page-head">
+  <div class="crumb"><a href="index.html">首页</a> / 高考知识点汇总</div>
+  <h1>📚 高考知识点汇总</h1>
+  <p>按「力学 · 电磁学 · 热学 · 光学 · 近代物理」五大模块组织，共 %d 个知识点。每个知识点给出定义、核心公式、关键结论与易错提醒，公式支持检索，可一键直达。</p>
+</section>
+%s
+<section class="wrap"><div class="layout">
+  <aside class="side">%s</aside>
+  <div>
+    <p style="color:var(--muted);font-size:13.5px;margin:0 0 14px">当前显示 <b id="visCount">%d</b> 个知识点</p>
+    %s
+    <p class="empty" id="emptyBox">没有匹配的知识点，试试其它关键词～</p>
+  </div>
+</div></section>
+""" % (n_kp, toolbar, "".join(side), n_kp, "".join(secs))
+    body = body.replace('<h4>目录</h4>', "")
+    return page("高考知识点汇总 · 力学/电磁学/热学/光学/近代物理", "高考物理全部知识点汇总：定义、核心公式、关键结论与易错提醒，支持检索与一键直达。", "know", body)
+
+
+# --------------------------------------------------------------------------
+# 题库页
+# --------------------------------------------------------------------------
+
+def render_questions():
+    cats = ["选择题", "实验题", "计算题"]
+    mods = []
+    for m in KNOWLEDGE:
+        if m["module"] not in mods:
+            mods.append(m["module"])
+    extra_mods = [x for x in ["综合"] if x not in mods]
+
+    items = []
+    for idx, q in enumerate(QUESTIONS):
+        cat = q.get("cat", "选择题")
+        mod = q.get("module", "综合")
+        diff = int(q.get("diff", 3))
+        tags = "".join('<span class="tagx">%s</span>' % t for t in q.get("tags", []))
+        opts = ""
+        if q.get("options"):
+            opts = '<ul class="opts">%s</ul>' % "".join("<li>%s</li>" % o for o in q["options"])
+        sol = []
+        if q.get("answer"):
+            sol.append('<div class="ans">✔ 答案：%s</div>' % q["answer"])
+        if q.get("analysis"):
+            sol.append('<div class="blk"><div class="bt">📝 详细解析</div><div class="bc">%s</div></div>' % q["analysis"])
+        if q.get("thinking"):
+            sol.append('<div class="blk"><div class="bt">💡 思路点拨</div><div class="bc">%s</div></div>' % q["thinking"])
+        if q.get("trick"):
+            sol.append('<div class="trickbox"><b>⚡ 秒杀技巧｜</b>%s</div>' % q["trick"])
+        sid = "s%d" % idx
+        txt = srch(q.get("q", ""), " ".join(q.get("tags", [])), q.get("source", ""), cat, mod, q.get("thinking", ""))
+        items.append(
+            '<article class="qcard" data-item data-cat="%s" data-module="%s" data-diff="%d" data-text="%s">'
+            '<div class="qhead"><span class="qno">%s</span>'
+            '<span class="qmeta">%s · %s</span><span class="stars">%s</span>%s</div>'
+            '<div class="qbody">%s</div>%s'
+            '<button class="btn" data-toggle="%s">显示答案与解析 ▼</button>'
+            '<div class="sol" id="%s">%s</div></article>'
+            % (attr(cat), attr(mod), diff, attr(txt),
+               q.get("id", "Q%d" % (idx + 1)), cat, q.get("source", "精编"),
+               "★" * diff + "☆" * (5 - diff), tags,
+               q.get("q", ""), opts, sid, sid, "".join(sol))
+        )
+
+    toolbar = """
+<div class="toolbar"><div class="toolbar-in">
+  <div class="row">
+    <div class="search">🔍<input id="search" type="search" placeholder="搜索题目关键词、考点，如：传送带、洛伦兹力、伏安法……"></div>
+  </div>
+  <div class="row"><span class="flabel">题型</span><div class="chips">
+    <span class="chip on" data-filter="cat" data-value="all">全部</span>
+    %s
+  </div></div>
+  <div class="row"><span class="flabel">模块</span><div class="chips">
+    <span class="chip on" data-filter="module" data-value="all">全部</span>
+    %s
+  </div></div>
+  <div class="row"><span class="flabel">难度</span><div class="chips">
+    <span class="chip on" data-filter="diff" data-value="all">全部</span>
+    <span class="chip" data-filter="diff" data-value="1">★ 基础</span>
+    <span class="chip" data-filter="diff" data-value="2">★★</span>
+    <span class="chip" data-filter="diff" data-value="3">★★★ 中档</span>
+    <span class="chip" data-filter="diff" data-value="4">★★★★</span>
+    <span class="chip" data-filter="diff" data-value="5">★★★★★ 压轴</span>
+  </div></div>
+</div></div>
+""" % (
+        "".join('<span class="chip" data-filter="cat" data-value="%s">%s</span>' % (c, c) for c in cats),
+        "".join('<span class="chip" data-filter="module" data-value="%s">%s</span>' % (attr(m), m) for m in mods + extra_mods),
+    )
+
+    body = """
+<section class="wrap page-head">
+  <div class="crumb"><a href="index.html">首页</a> / 真题模拟题库</div>
+  <h1>🧮 高考真题模拟题库</h1>
+  <p>共 %d 道精编题，覆盖选择题、实验题、计算题三大题型与全部模块。每题配答案、分步解析、思路点拨与秒杀技巧，点开即看，支持按题型 / 模块 / 难度筛选与关键词检索。</p>
+</section>
+%s
+<section class="wrap">
+  <p style="color:var(--muted);font-size:13.5px;margin:0 0 14px">当前显示 <b id="visCount">%d</b> 道题</p>
+  %s
+  <p class="empty" id="emptyBox">没有匹配的题目，换个筛选条件试试～</p>
+  <div style="height:40px"></div>
+</section>
+""" % (len(QUESTIONS), toolbar, len(QUESTIONS), "".join(items))
+    return page("高考真题模拟题库 · 选择/实验/计算题", "高考物理真题与模拟题精编：选择题、实验题、计算题，含答案解析、思路点拨与秒杀技巧，支持筛选检索。", "ques", body)
+
+
+# --------------------------------------------------------------------------
+# 技巧页
+# --------------------------------------------------------------------------
+
+def render_skills():
+    cats = ["方法类", "模型类", "速算类", "应试类"]
+    items = []
+    for s in SKILLS:
+        cat = s.get("cat", "方法类")
+        steps = ""
+        if s.get("steps"):
+            steps = '<ol class="ol">%s</ol>' % "".join("<li>%s</li>" % x for x in s["steps"])
+        ex = ""
+        if s.get("example"):
+            ex = '<div class="blk"><div class="bt">🧩 典型例题</div><div class="bc">%s</div></div>' % s["example"]
+        pit = ""
+        if s.get("pitfall"):
+            pit = '<div class="pit"><b>易错提醒｜</b>%s</div>' % s["pitfall"]
+        motto = '<div class="motto">🎯 口诀：%s</div>' % s["motto"] if s.get("motto") else ""
+        lvl = s.get("level", "进阶")
+        txt = srch(s.get("name", ""), s.get("scene", ""), s.get("idea", ""), s.get("motto", ""), cat)
+        items.append(
+            '<article class="scard" data-item data-cat="%s" data-level="%s" data-text="%s">'
+            '<h3>%s<span class="lvl lvl-%s">%s</span></h3>'
+            '<p class="scene">%s</p>'
+            '<div class="blk"><div class="bt">🎯 核心思想</div><div class="bc">%s</div></div>'
+            '%s%s%s%s</article>'
+            % (attr(cat), attr(lvl), attr(txt), s.get("name", ""), lvl, lvl,
+               s.get("scene", ""), s.get("idea", ""), steps, ex, pit, motto)
+        )
+
+    toolbar = """
+<div class="toolbar"><div class="toolbar-in">
+  <div class="row">
+    <div class="search">🔍<input id="search" type="search" placeholder="搜索技巧、方法，如：整体法、临界、等效、图象……"></div>
+  </div>
+  <div class="row"><span class="flabel">类别</span><div class="chips">
+    <span class="chip on" data-filter="cat" data-value="all">全部</span>
+    %s
+  </div></div>
+  <div class="row"><span class="flabel">难度</span><div class="chips">
+    <span class="chip on" data-filter="level" data-value="all">全部</span>
+    <span class="chip" data-filter="level" data-value="基础">基础</span>
+    <span class="chip" data-filter="level" data-value="进阶">进阶</span>
+    <span class="chip" data-filter="level" data-value="高阶">高阶</span>
+  </div></div>
+</div></div>
+""" % "".join('<span class="chip" data-filter="cat" data-value="%s">%s</span>' % (c, c) for c in cats)
+
+    body = """
+<section class="wrap page-head">
+  <div class="crumb"><a href="index.html">首页</a> / 解题技巧思路大全</div>
+  <h1>🧠 解题技巧思路大全</h1>
+  <p>方法 · 模型 · 速算 · 应试四大类，共 %d 个高级思路与技巧。每个技巧给出适用场景、核心思想、解题步骤、典型例题、易错提醒与记忆口诀，帮你把出题人的套路拆到明面上。</p>
+</section>
+%s
+<section class="wrap">
+  <p style="color:var(--muted);font-size:13.5px;margin:0 0 14px">当前显示 <b id="visCount">%d</b> 个技巧</p>
+  %s
+  <p class="empty" id="emptyBox">没有匹配的技巧，换个筛选条件试试～</p>
+  <div style="height:40px"></div>
+</section>
+""" % (len(SKILLS), toolbar, len(SKILLS), "".join(items))
+    return page("解题技巧思路大全 · 高考物理解题方法", "高考物理解题高级思路与技巧：整体法、临界极值、等效法、图象法、模型拆解与应试策略，含步骤与例题。", "skill", body)
+
+
+# --------------------------------------------------------------------------
+# 主入口
+# --------------------------------------------------------------------------
+
+def write(name, content):
+    path = os.path.join(HERE, name)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return len(content.encode("utf-8"))
+
+
+def main():
+    outputs = [
+        ("index.html", render_home()),
+        ("knowledge.html", render_knowledge()),
+        ("questions.html", render_questions()),
+        ("skills.html", render_skills()),
+    ]
+    for name, html in outputs:
+        size = write(name, html)
+        print("written %-16s %8.1f KB" % (name, size / 1024))
+    print("Total knowledge points:", total_points())
+    print("Total questions:", len(QUESTIONS))
+    print("Total skills:", len(SKILLS))
+
+
+if __name__ == "__main__":
+    main()
